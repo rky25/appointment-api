@@ -1,8 +1,18 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from fastapi.middleware.cors import CORSMiddleware  # import CORS middleware
 
 app = FastAPI()
+
+# Add CORS middleware here
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # allow all origins, change this in production for security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 booked_slots = {}
 
