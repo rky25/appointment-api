@@ -1,48 +1,37 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from datetime import datetime, timedelta
-from fastapi.middleware.cors import CORSMiddleware  # import CORS middleware
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import PlainTextResponse
+import fitz  # PyMuPDF
+import os
 
 app = FastAPI()
 
-# Add CORS middleware here
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # allow all origins, change this in production for security
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-booked_slots = {}
+@app.post("/extract-text", response_class=PlainTextResponse)
+async def extract_text_from_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-class AppointmentRequest(BaseModel):
-    userName: str
-    preferredDate: str  # format 'YYYY-MM-DD'
-    preferredTime: str  # format 'HH:MM'
+    # Save uploaded PDF to disk
+    pdf_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(pdf_path, "wb") as f:
+        f.write(await file.read())
 
-class AppointmentResponse(BaseModel):
-    status: str
-    confirmedDateTime: str
-    message: str
+    # Extract text from PDF
+    try:
+        doc = fitz.open(pdf_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading PDF: {str(e)}")
+    finally:
+        os.remove(pdf_path)  # Clean up uploaded file
 
-@app.post("/book-appointment", response_model=AppointmentResponse)
-def book_appointment(request: AppointmentRequest):
-    date = request.preferredDate
-    time = request.preferredTime
-    key = f"{date} {time}"
-    
-    if key in booked_slots:
-        next_available = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M") + timedelta(hours=1)
-        return AppointmentResponse(
-            status="Not Available",
-            confirmedDateTime=next_available.strftime("%Y-%m-%d %H:%M"),
-            message=f"Slot not available. Next available: {next_available.strftime('%Y-%m-%d %H:%M')}"
-        )
-    else:
-        booked_slots[key] = request.userName
-        return AppointmentResponse(
-            status="Booked",
-            confirmedDateTime=f"{date} {time}",
-            message="Your appointment is confirmed."
-        )
+    return text or "No text found in PDF."
+
+@app.get("/")
+def home():
+    return {"message": "PDF to Text API is running."}
